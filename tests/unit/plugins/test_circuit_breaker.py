@@ -81,7 +81,7 @@ class TestCircuitBreakerClosedState:
         """Closed circuit should allow requests through."""
         payload = ToolPreInvokePayload(name="test_tool", args={})
         result = await plugin.tool_pre_invoke(payload, context)
-        
+
         assert result.continue_processing is True
         assert result.violation is None
 
@@ -90,7 +90,7 @@ class TestCircuitBreakerClosedState:
         """Pre-invoke should record call timestamp in context."""
         payload = ToolPreInvokePayload(name="test_tool", args={})
         await plugin.tool_pre_invoke(payload, context)
-        
+
         call_time = context.get_state("cb_call_time")
         assert call_time is not None
         assert abs(call_time - time.time()) < 1  # Within 1 second
@@ -103,15 +103,15 @@ class TestCircuitBreakerOpening:
     async def test_opens_on_consecutive_failures(self, plugin, context):
         """Circuit should open after consecutive_failure_threshold failures."""
         tool = "test_tool"
-        
+
         # Simulate 3 consecutive failures
         for _ in range(3):
             pre_payload = ToolPreInvokePayload(name=tool, args={})
             await plugin.tool_pre_invoke(pre_payload, context)
-            
+
             post_payload = ToolPostInvokePayload(name=tool, result={"is_error": True})
             result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Check circuit is now open
         assert result.metadata["circuit_open_until"] > 0
         assert result.metadata["circuit_consecutive_failures"] == 3
@@ -120,16 +120,16 @@ class TestCircuitBreakerOpening:
     async def test_opens_on_error_rate_threshold(self, plugin, context):
         """Circuit should open when error rate exceeds threshold."""
         tool = "test_tool"
-        
+
         # Simulate 3 calls (min_calls): 2 failures, 1 success = 66% error rate > 50% threshold
         for i in range(3):
             pre_payload = ToolPreInvokePayload(name=tool, args={})
             await plugin.tool_pre_invoke(pre_payload, context)
-            
+
             is_error = i < 2  # First 2 are failures
             post_payload = ToolPostInvokePayload(name=tool, result={"is_error": is_error})
             result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Check circuit is now open
         assert result.metadata["circuit_open_until"] > 0
         assert result.metadata["circuit_failure_rate"] >= 0.5
@@ -144,10 +144,10 @@ class TestCircuitBreakerOpenState:
         tool = "test_tool"
         st = _get_state(tool)
         st.open_until = time.time() + 30  # Open for 30 seconds
-        
+
         payload = ToolPreInvokePayload(name=tool, args={})
         result = await plugin.tool_pre_invoke(payload, context)
-        
+
         assert result.continue_processing is False
         assert result.violation is not None
         assert result.violation.code == "CIRCUIT_OPEN"
@@ -158,10 +158,10 @@ class TestCircuitBreakerOpenState:
         tool = "test_tool"
         st = _get_state(tool)
         st.open_until = time.time() + 30  # Open for 30 seconds
-        
+
         payload = ToolPreInvokePayload(name=tool, args={})
         result = await plugin.tool_pre_invoke(payload, context)
-        
+
         assert result.violation is not None
         assert "retry_after_seconds" in result.violation.details
         assert result.violation.details["retry_after_seconds"] > 0
@@ -178,10 +178,10 @@ class TestCircuitBreakerHalfOpenState:
         st = _get_state(tool)
         st.open_until = time.time() - 1  # Cooldown elapsed
         st.consecutive_failures = 5
-        
+
         payload = ToolPreInvokePayload(name=tool, args={})
         result = await plugin.tool_pre_invoke(payload, context)
-        
+
         # Should allow request through (half-open)
         assert result.continue_processing is True
         assert st.half_open is True
@@ -194,15 +194,15 @@ class TestCircuitBreakerHalfOpenState:
         st = _get_state(tool)
         st.half_open = True
         st.consecutive_failures = 5
-        
+
         # Set context for half-open test
         context.set_state("cb_half_open_test", True)
         context.set_state("cb_call_time", time.time())
-        
+
         # Successful probe
         post_payload = ToolPostInvokePayload(name=tool, result={"is_error": False})
         result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Circuit should be fully closed
         assert st.half_open is False
         assert st.consecutive_failures == 0
@@ -215,17 +215,17 @@ class TestCircuitBreakerHalfOpenState:
         st = _get_state(tool)
         st.half_open = True
         st.consecutive_failures = 5
-        
+
         # Set context for half-open test
         context.set_state("cb_half_open_test", True)
         context.set_state("cb_call_time", time.time())
-        
+
         # Failed probe
         post_payload = ToolPostInvokePayload(name=tool, result={"is_error": True})
         with patch("mcpgateway.services.metrics.circuit_breaker_open_counter") as mock_counter:
             mock_counter.labels.return_value.inc = MagicMock()
             result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Circuit should be reopened
         assert st.half_open is False
         assert result.metadata["circuit_open_until"] > time.time()
@@ -293,15 +293,15 @@ class TestTimeoutIntegration:
     async def test_timeout_counted_as_failure(self, plugin, context):
         """Timeout flag should be counted as failure."""
         tool = "test_tool"
-        
+
         # Set timeout flag (as tool_service would do)
         context.set_state("cb_timeout_failure", True)
         context.set_state("cb_call_time", time.time())
-        
+
         # Post-invoke with a technically successful result but timeout flag set
         post_payload = ToolPostInvokePayload(name=tool, result={"is_error": False})
         result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Should count as failure
         assert result.metadata["circuit_failures_in_window"] == 1
         assert result.metadata["circuit_consecutive_failures"] == 1
@@ -327,15 +327,15 @@ class TestPerToolOverrides:
             },
         )
         plugin = CircuitBreakerPlugin(config)
-        
+
         # Simulate 5 failures on critical_tool (should NOT open - needs 10)
         for _ in range(5):
             pre_payload = ToolPreInvokePayload(name="critical_tool", args={})
             await plugin.tool_pre_invoke(pre_payload, context)
-            
+
             post_payload = ToolPostInvokePayload(name="critical_tool", result={"is_error": True})
             result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Circuit should still be closed (needs 10 failures)
         assert result.metadata["circuit_open_until"] == 0.0
         assert result.metadata["circuit_consecutive_failures"] == 5
@@ -354,7 +354,7 @@ class TestHelperFunctions:
         """_is_error should detect error in object result."""
         class MockResult:
             is_error = True
-        
+
         assert _is_error(MockResult()) is True
         MockResult.is_error = False
         assert _is_error(MockResult()) is False
@@ -365,10 +365,10 @@ class TestHelperFunctions:
             consecutive_failure_threshold=5,
             tool_overrides={"special_tool": {"consecutive_failure_threshold": 10}},
         )
-        
+
         merged = _cfg_for(base_cfg, "special_tool")
         assert merged.consecutive_failure_threshold == 10
-        
+
         default = _cfg_for(base_cfg, "regular_tool")
         assert default.consecutive_failure_threshold == 5
 
@@ -381,19 +381,19 @@ class TestWindowEviction:
         """Old call/failure entries should be evicted after window expires."""
         tool = "test_tool"
         st = _get_state(tool)
-        
+
         # Add old entries (outside window)
         old_time = time.time() - 120  # 2 minutes ago
         st.calls.append(old_time)
         st.failures.append(old_time)
-        
+
         # Make a new call
         pre_payload = ToolPreInvokePayload(name=tool, args={})
         await plugin.tool_pre_invoke(pre_payload, context)
-        
+
         post_payload = ToolPostInvokePayload(name=tool, result={"is_error": False})
         result = await plugin.tool_post_invoke(post_payload, context)
-        
+
         # Old entries should be evicted
         assert result.metadata["circuit_calls_in_window"] == 1
         assert result.metadata["circuit_failures_in_window"] == 0
